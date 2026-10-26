@@ -1,69 +1,131 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import { calculateFinance, calculateMonthlyPayment, defaultRules } from "@/lib/finance";
+import { Application, PreliminaryResult, Role, roleLabels, seedApplications, seedTickets, Ticket } from "@/lib/mock-data";
+
+type Tab = "overview" | "applications" | "simulator" | "support" | "review" | "admin";
+type IconName = "grid" | "file" | "calculator" | "message" | "users" | "settings" | "bell" | "check" | "clock" | "upload" | "plus" | "arrow" | "menu" | "close" | "help";
+
+function Icon({ name }: { name: IconName }) {
+  const symbols: Record<IconName, string> = { grid: "▦", file: "▤", calculator: "▣", message: "◌", users: "♧", settings: "⚙", bell: "♢", check: "✓", clock: "◷", upload: "↑", plus: "+", arrow: "→", menu: "☰", close: "×", help: "?" };
+  return <span className={`icon icon-${name}`} aria-hidden="true">{symbols[name]}</span>;
+}
+
+const money = (value: number | null) => value === null ? "—" : `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đ`;
+const percent = (value: number | null) => value === null ? "—" : `${(value * 100).toFixed(0)}%`;
+const statusLabels: Record<Application["status"], string> = { draft: "Nháp", submitted: "Đã gửi", in_review: "Đang tiền thẩm định", needs_more_info: "Cần bổ sung", completed: "Hoàn tất tiền thẩm định" };
 
 export default function Home() {
+  const [role, setRole] = useState<Role>("customer");
+  const [tab, setTab] = useState<Tab>("overview");
+  const [mobileNav, setMobileNav] = useState(false);
+  const [applications, setApplications] = useState<Application[]>(seedApplications);
+  const [tickets, setTickets] = useState<Ticket[]>(seedTickets);
+  const [notifications, setNotifications] = useState(2);
+  const [showLogin, setShowLogin] = useState(false);
+  const [showNewApplication, setShowNewApplication] = useState(false);
+  const [showTicket, setShowTicket] = useState(false);
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    try {
+      const saved = window.localStorage.getItem("housing-loan-checker");
+      if (saved) {
+        const data = JSON.parse(saved) as { applications?: Application[]; tickets?: Ticket[]; role?: Role };
+        window.setTimeout(() => {
+          if (!active) return;
+          if (data.applications) setApplications(data.applications);
+          if (data.tickets) setTickets(data.tickets);
+          if (data.role) setRole(data.role);
+        }, 0);
+      }
+    } catch { window.setTimeout(() => { if (active) setToast("Không thể đọc dữ liệu đã lưu."); }, 0); }
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("housing-loan-checker", JSON.stringify({ applications, tickets, role }));
+  }, [applications, tickets, role]);
+
+  const app = applications[0];
+  const isStaff = role !== "customer";
+  const openTab = (next: Tab) => { setTab(next); setMobileNav(false); };
+  const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 3000); };
+  const updateApplication = (patch: Partial<Application>) => setApplications((items) => items.map((item) => item.id === app.id ? { ...item, ...patch, updatedAt: "Vừa cập nhật" } : item));
+
+  const nav = [
+    { id: "overview" as Tab, label: "Tổng quan", icon: "grid" as IconName },
+    { id: "applications" as Tab, label: "Hồ sơ vay", icon: "file" as IconName },
+    { id: "simulator" as Tab, label: "Tính khoản vay", icon: "calculator" as IconName },
+    { id: "support" as Tab, label: "Hỗ trợ", icon: "message" as IconName },
+    ...(role === "appraiser" ? [{ id: "review" as Tab, label: "Hàng đợi thẩm định", icon: "check" as IconName }] : []),
+    ...(role === "admin" ? [{ id: "admin" as Tab, label: "Quản trị hệ thống", icon: "settings" as IconName }] : []),
+  ];
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="app-shell">
+      <aside className={`sidebar ${mobileNav ? "sidebar-open" : ""}`}>
+        <div className="brand"><div className="brand-mark">H</div><div><strong>HousingLoan</strong><span>CHECKER</span></div><button className="icon-button mobile-close" onClick={() => setMobileNav(false)} aria-label="Đóng menu"><Icon name="close" /></button></div>
+        <div className="workspace-label">{isStaff ? roleLabels[role].toUpperCase() : "KHÁCH HÀNG"}</div>
+        <nav className="main-nav" aria-label="Điều hướng chính">
+          {nav.map((item) => <button key={item.id} className={`nav-item ${tab === item.id ? "active" : ""}`} onClick={() => openTab(item.id)}><Icon name={item.icon} /><span>{item.label}</span>{item.id === "applications" && <span className="nav-count">1</span>}</button>)}
+        </nav>
+        <div className="sidebar-bottom">
+          <button className="nav-item" onClick={() => notify("Trung tâm trợ giúp đang được cập nhật.")}><Icon name="help" /><span>Trung tâm trợ giúp</span></button>
+          <button className="nav-item" onClick={() => notify("Cài đặt tài khoản sẽ được kết nối ở bước backend.")}><Icon name="settings" /><span>Cài đặt</span></button>
+          <div className="profile-mini"><div className="avatar">NA</div><div><strong>Nguyễn An</strong><span>{roleLabels[role]}</span></div><button className="profile-role" onClick={() => setShowLogin(true)}>Đổi</button></div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </aside>
+      {mobileNav && <button className="sidebar-overlay" onClick={() => setMobileNav(false)} aria-label="Đóng menu" />}
+
+      <main className="main-content">
+        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)} aria-label="Mở menu"><Icon name="menu" /></button><div className="breadcrumb"><span>{roleLabels[role]}</span><b>/</b><strong>{nav.find((item) => item.id === tab)?.label}</strong></div><div className="topbar-actions"><button className="notification-button" onClick={() => { setNotifications(0); notify("Bạn đã xem tất cả thông báo."); }} aria-label="Thông báo"><Icon name="bell" />{notifications > 0 && <span />}</button><button className="topbar-avatar" onClick={() => setShowLogin(true)}>NA</button></div></header>
+        <div className="page-wrap">
+          {tab === "overview" && <Overview app={app} onNew={() => setShowNewApplication(true)} onContinue={() => openTab("applications")} onSimulator={() => openTab("simulator")} onSupport={() => setShowTicket(true)} />}
+          {tab === "applications" && <Applications app={app} onUpdate={updateApplication} onNotify={notify} />}
+          {tab === "simulator" && <Simulator onNotify={notify} />}
+          {tab === "support" && <Support tickets={tickets} onNew={() => setShowTicket(true)} />}
+          {tab === "review" && role === "appraiser" && <Review app={app} onUpdate={updateApplication} onNotify={notify} />}
+          {tab === "admin" && role === "admin" && <Admin onNotify={notify} />}
+          <footer className="page-footer">HousingLoanChecker <span>•</span> Nền tảng hỗ trợ tiền thẩm định hồ sơ vay mua nhà</footer>
         </div>
       </main>
+
+      {showLogin && <Modal title="Đăng nhập tài khoản" onClose={() => setShowLogin(false)}><p className="modal-note">Chọn vai trò tài khoản để truy cập các màn hình và nghiệp vụ tương ứng.</p><div className="role-grid">{(Object.keys(roleLabels) as Role[]).map((item) => <button key={item} className={`role-option ${role === item ? "selected" : ""}`} onClick={() => { setRole(item); setTab(item === "appraiser" ? "review" : item === "admin" ? "admin" : "overview"); setShowLogin(false); notify(`Đã chuyển sang vai trò ${roleLabels[item]}.`); }}><span className="role-avatar"><Icon name={item === "customer" ? "users" : item === "admin" ? "settings" : "check"} /></span><span><strong>{roleLabels[item]}</strong><small>{item === "customer" ? "khachhang@housingloan.vn" : `${item}@housingloan.vn`}</small></span></button>)}</div></Modal>}
+      {showNewApplication && <Modal title="Tạo hồ sơ vay mới" onClose={() => setShowNewApplication(false)}><NewApplication onSubmit={(title) => { const next: Application = { ...app, id: `HL-${Date.now().toString().slice(-6)}`, title, status: "draft", preliminaryResult: "none", version: 1, updatedAt: "Vừa tạo" }; setApplications((items) => [next, ...items]); setShowNewApplication(false); notify("Đã tạo hồ sơ nháp. Bạn có thể tiếp tục hoàn thiện."); setTab("applications"); }} /></Modal>}
+      {showTicket && <Modal title="Gửi yêu cầu hỗ trợ" onClose={() => setShowTicket(false)}><TicketForm onSubmit={(subject, message) => { setTickets((items) => [{ id: `HT-${items.length + 2}`.padStart(6, "0"), subject, message, status: "new", updatedAt: "Vừa tạo" }, ...items]); setShowTicket(false); notify("Đã gửi yêu cầu hỗ trợ."); }} /></Modal>}
+      {toast && <div className="toast"><Icon name="check" />{toast}</div>}
     </div>
   );
 }
+
+function PageTitle({ eyebrow, title, action }: { eyebrow: string; title: string; action?: React.ReactNode }) { return <div className="page-title"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1></div>{action}</div>; }
+function Overview({ app, onNew, onContinue, onSimulator, onSupport }: { app: Application; onNew: () => void; onContinue: () => void; onSimulator: () => void; onSupport: () => void }) {
+  const completed = app.documents.filter((item) => item.status === "confirmed" || item.status === "submitted").length;
+  return <><section className="welcome-row"><div><p className="eyebrow">THỨ HAI, 17 THÁNG 6, 2024</p><h1>Chào buổi sáng, An <span>✦</span></h1><p className="subheading">Cùng hoàn thiện hồ sơ vay mua nhà của bạn nhé.</p></div><button className="primary-button" onClick={onNew}><Icon name="plus" /> Tạo hồ sơ mới</button></section>
+    <section className="stats-grid"><Stat icon="file" tone="green" label="Hồ sơ đang xử lý" value="01" detail={app.type} /><Stat icon="clock" tone="amber" label="Trạng thái hiện tại" value={statusLabels[app.status]} detail={app.updatedAt} /><Stat icon="check" tone="blue" label="Tiến độ checklist" value={`${Math.round(completed / app.documents.length * 100)}%`} detail={`${completed} / ${app.documents.length} tài liệu hoàn tất`} /></section>
+    <section className="content-grid"><div className="primary-column"><SectionHeading eyebrow="HỒ SƠ GẦN NHẤT" title={app.type} action={<button className="text-button" onClick={onContinue}>Xem chi tiết <Icon name="arrow" /></button>} /><div className="application-card"><div className="application-head"><div><span className="application-id">Mã hồ sơ #{app.id}</span><h3>{app.title}</h3></div><span className="pill warning">{statusLabels[app.status]}</span></div><div className="progress-line"><span style={{ width: `${completed / app.documents.length * 100}%` }} /></div><div className="application-meta"><span>Tiến độ hoàn thiện</span><strong>{Math.round(completed / app.documents.length * 100)}%</strong></div><div className="application-footer"><span><Icon name="clock" /> Cập nhật lần cuối: {app.updatedAt}</span><button className="outline-button" onClick={onContinue}>Tiếp tục hồ sơ <Icon name="arrow" /></button></div></div>
+      <SectionHeading eyebrow="CHECKLIST HỒ SƠ" title="Tài liệu cần chuẩn bị" action={<span className="muted-count">{completed} hoàn tất / {app.documents.length} mục</span>} /><div className="checklist-card">{app.documents.map((doc) => <DocumentRow key={doc.id} document={doc} />)}<div className="checklist-note"><span>!</span> Hồ sơ sẽ được tiếp nhận sau khi bạn hoàn tất các tài liệu bắt buộc.</div></div></div>
+      <div className="secondary-column"><SectionHeading eyebrow="TÍNH TOÁN KHOẢN VAY" title="Khả năng vay" /><SimulatorMini onOpen={onSimulator} /><div className="support-card"><div className="support-icon"><Icon name="message" /></div><div><h3>Cần hỗ trợ?</h3><p>Đội ngũ tư vấn sẵn sàng giải đáp thắc mắc của bạn.</p><button className="text-button" onClick={onSupport}>Gửi yêu cầu hỗ trợ <Icon name="arrow" /></button></div></div></div></section></>;
+}
+function Stat({ icon, tone, label, value, detail }: { icon: IconName; tone: string; label: string; value: string; detail: string }) { return <div className="stat-card"><div className={`stat-icon ${tone}`}><Icon name={icon} /></div><div><span className="stat-label">{label}</span><strong className={tone === "amber" ? "status-text" : ""}>{value}</strong><small>{detail}</small></div></div>; }
+function SectionHeading({ eyebrow, title, action }: { eyebrow: string; title: string; action?: React.ReactNode }) { return <div className="section-heading"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div>{action}</div>; }
+function DocumentRow({ document, onClick }: { document: Application["documents"][number]; onClick?: () => void }) { const state = document.status === "confirmed" ? "done" : document.status === "needs_more_info" ? "warning" : document.status === "submitted" ? "pending" : "empty"; return <div className="document-row"><div className={`document-status ${state}`}><Icon name={state === "done" ? "check" : state === "warning" ? "clock" : state === "empty" ? "upload" : "clock"} /></div><div className="document-copy"><strong>{document.name}</strong><span className={state === "warning" ? "warning-copy" : ""}>{document.note || (state === "done" ? "Đã xác nhận" : state === "pending" ? "Đã nộp, chờ kiểm tra" : state === "warning" ? "Cần bổ sung" : "Chưa nộp")}</span></div>{state !== "done" && <button className="upload-button" onClick={onClick}>{state === "warning" ? "Bổ sung" : "Tải lên"} <Icon name="arrow" /></button>}</div>; }
+function Applications({ app, onUpdate, onNotify }: { app: Application; onUpdate: (patch: Partial<Application>) => void; onNotify: (message: string) => void }) {
+  const [step, setStep] = useState(0); const [form, setForm] = useState({ fullName: "Nguyễn An", marital: "Độc thân", job: "Nhân viên văn phòng", income: "30000000", loan: "1400000000", term: "240" }); const [uploaded, setUploaded] = useState<string[]>([]);
+  const groups = ["Thông tin người vay", "Nghề nghiệp & thu nhập", "Khoản vay đề nghị", "Tài sản dự kiến mua"];
+  const submit = () => { onUpdate({ status: "submitted", version: app.version + 1 }); onNotify("Hồ sơ đã được nộp. Trạng thái chuyển sang Đã gửi."); };
+  return <><PageTitle eyebrow="HỒ SƠ VAY" title="Hoàn thiện hồ sơ" action={<span className="pill warning">{statusLabels[app.status]}</span>} /><div className="workflow-layout"><div className="workflow-main"><div className="stepper">{groups.map((item, index) => <button key={item} className={step === index ? "active" : step > index ? "done" : ""} onClick={() => setStep(index)}><span>{step > index ? "✓" : index + 1}</span>{item}</button>)}</div><div className="form-card"><div className="form-card-head"><div><p className="eyebrow">BƯỚC {step + 1} / 4</p><h2>{groups[step]}</h2></div><span className="muted-count">Tự động lưu bản nháp</span></div>{step === 0 && <div className="form-grid"><Field label="Họ và tên" value={form.fullName} onChange={(value) => setForm({ ...form, fullName: value })} /><Field label="Tình trạng hôn nhân" value={form.marital} onChange={(value) => setForm({ ...form, marital: value })} select options={["Độc thân", "Đã kết hôn", "Khác"]} /><Field label="Số điện thoại" value="090 123 4567" onChange={() => undefined} /><Field label="Địa chỉ hiện tại" value="Quận Cầu Giấy, Hà Nội" onChange={() => undefined} /></div>}{step === 1 && <div className="form-grid"><Field label="Nghề nghiệp" value={form.job} onChange={(value) => setForm({ ...form, job: value })} /><Field label="Thu nhập ròng hàng tháng (I)" value={form.income} onChange={(value) => setForm({ ...form, income: value })} suffix="đ" /><Field label="Hình thức thu nhập" value="Hưởng lương" onChange={() => undefined} select options={["Hưởng lương", "Chủ doanh nghiệp", "Hộ kinh doanh"]} /><Field label="Thâm niên công việc" value="4 năm 2 tháng" onChange={() => undefined} /></div>}{step === 2 && <div className="form-grid"><Field label="Số tiền đề nghị vay (P)" value={form.loan} onChange={(value) => setForm({ ...form, loan: value })} suffix="đ" /><Field label="Kỳ hạn vay" value={form.term} onChange={(value) => setForm({ ...form, term: value })} suffix="tháng" /><Field label="Lãi suất" value="8.5" onChange={() => undefined} suffix="% / năm" /><Field label="Mục đích vay" value="Mua nhà ở" onChange={() => undefined} /></div>}{step === 3 && <div className="form-grid"><Field label="Loại tài sản" value="Nhà có sổ đỏ" onChange={() => undefined} select options={["Nhà có sổ đỏ", "Mua từ chủ đầu tư"]} /><Field label="Giá trị tài sản (V)" value="2000000000" onChange={() => undefined} suffix="đ" /><Field label="Tỉnh / thành phố" value="Hà Nội" onChange={() => undefined} /><Field label="Vốn tự có dự kiến" value="600000000" onChange={() => undefined} suffix="đ" /></div>}<div className="form-actions"><button className="secondary-button" disabled={step === 0} onClick={() => setStep(step - 1)}>Quay lại</button>{step < 3 ? <button className="primary-button" onClick={() => setStep(step + 1)}>Tiếp tục <Icon name="arrow" /></button> : <button className="primary-button" onClick={submit}>Nộp hồ sơ <Icon name="check" /></button>}</div></div></div><aside className="workflow-side"><SectionHeading eyebrow="TÀI LIỆU" title="Checklist hồ sơ" /><div className="checklist-card">{app.documents.map((doc) => <DocumentRow key={doc.id} document={{ ...doc, status: uploaded.includes(doc.id) ? "submitted" : doc.status }} onClick={() => { setUploaded([...uploaded, doc.id]); onNotify(`Đã tải lên: ${doc.name}`); }} />)}</div><div className="privacy-note"><Icon name="help" /><span>Tài liệu được bảo mật và chỉ chia sẻ với nhân sự được phân quyền xử lý hồ sơ.</span></div></aside></div></>;
+}
+function Field({ label, value, onChange, suffix, select, options }: { label: string; value: string; onChange: (value: string) => void; suffix?: string; select?: boolean; options?: string[] }) { return <label className="field"><span>{label}</span>{select ? <select value={value} onChange={(event) => onChange(event.target.value)}>{options?.map((option) => <option key={option}>{option}</option>)}</select> : <div className="input-wrap"><input value={value} onChange={(event) => onChange(event.target.value)} />{suffix && <small>{suffix}</small>}</div>}</label>; }
+function Simulator({ onNotify }: { onNotify: (message: string) => void }) { const [values, setValues] = useState({ income: "30000000", living: "8000000", debt: "3000000", amount: "1400000000", property: "2000000000", term: "240", rate: "8.5" }); const input = { income: Number(values.income), livingCost: Number(values.living), existingDebt: Number(values.debt), newPayment: calculateMonthlyPayment(Number(values.amount), Number(values.rate), Number(values.term)), loanAmount: Number(values.amount), propertyValue: Number(values.property) }; const result = calculateFinance(input); return <><PageTitle eyebrow="TÍNH TOÁN KHOẢN VAY" title="Khả năng tài chính" action={<span className="simulation-label"><span /> Đang cập nhật</span>} /><div className="simulator-page"><div className="simulator-form form-card"><div className="form-card-head"><div><h2>Thông tin khoản vay</h2><p className="subheading">Nhập thông tin để hệ thống tính toán các chỉ tiêu tài chính.</p></div></div><div className="form-grid"><Field label="Thu nhập ròng (I)" value={values.income} onChange={(value) => setValues({ ...values, income: value })} suffix="đ / tháng" /><Field label="Chi phí sinh hoạt (C)" value={values.living} onChange={(value) => setValues({ ...values, living: value })} suffix="đ / tháng" /><Field label="Nghĩa vụ hiện tại (D)" value={values.debt} onChange={(value) => setValues({ ...values, debt: value })} suffix="đ / tháng" /><Field label="Số tiền vay (P)" value={values.amount} onChange={(value) => setValues({ ...values, amount: value })} suffix="đ" /><Field label="Giá trị tài sản (V)" value={values.property} onChange={(value) => setValues({ ...values, property: value })} suffix="đ" /><Field label="Kỳ hạn" value={values.term} onChange={(value) => setValues({ ...values, term: value })} suffix="tháng" /><Field label="Lãi suất" value={values.rate} onChange={(value) => setValues({ ...values, rate: value })} suffix="% / năm" /></div><button className="primary-button" onClick={() => onNotify("Đã cập nhật các chỉ tiêu tài chính.")}>Cập nhật kết quả <Icon name="arrow" /></button></div><div className="results-panel"><div className="results-head"><div><p className="eyebrow">KẾT QUẢ TÀI CHÍNH</p><h2>Khả năng tài chính</h2></div><span className="rule-version">{defaultRules.version}</span></div><div className="ratio-grid"><Metric label="LTV" result={result.ltv} /><Metric label="DSR" result={result.dsr} /><Metric label="DTI" result={result.dti} /><Metric label="Còn lại / tháng" result={result.remaining} moneyValue /></div><div className="formula-list"><p><b>A</b> Khoản trả nợ dự kiến <strong>{money(input.newPayment)}</strong></p><p><b>Ngưỡng</b> LTV ≤ 70% · DSR ≤ 50% · DTI ≤ 40% · Còn lại ≥ 0 đ</p><p><b>Công thức DTI</b> D / I — công thức được quản trị trong cấu hình nghiệp vụ.</p></div><div className="disclaimer"><Icon name="help" /> Kết quả là căn cứ hỗ trợ thẩm định, không thay thế quyết định tín dụng.</div></div></div></>; }
+function Metric({ label, result, moneyValue }: { label: string; result: { value: number | null; result: string; reason: string }; moneyValue?: boolean }) { return <div className={`metric-card ${result.result}`}><span>{label}</span><strong>{moneyValue ? money(result.value) : percent(result.value)}</strong><small>{result.result === "pass" ? "Trong ngưỡng" : result.result === "fail" ? "Vượt ngưỡng" : "Chưa đủ dữ liệu"}</small></div>; }
+function SimulatorMini({ onOpen }: { onOpen: () => void }) { const result = calculateFinance({ income: 30000000, livingCost: 8000000, existingDebt: 3000000, newPayment: 12190000, loanAmount: 1400000000, propertyValue: 2000000000 }); return <div className="simulator-card"><p className="simulator-intro">Xem nhanh các chỉ tiêu tài chính của khoản vay.</p><div className="mini-ratio"><span>LTV dự kiến</span><strong>{percent(result.ltv.value)}</strong><small>Ngưỡng tối đa: 70%</small><div className="ratio-bar"><span style={{ width: "70%" }} /></div></div><div className="mini-results"><span>DSR <b>{percent(result.dsr.value)}</b></span><span>DTI <b>{percent(result.dti.value)}</b></span></div><div className="simulator-footnote"><Icon name="help" /> Các chỉ tiêu được tính theo cấu hình hiện hành.</div><button className="secondary-button" onClick={onOpen}>Xem chi tiết khoản vay <Icon name="arrow" /></button></div>; }
+function Support({ tickets, onNew }: { tickets: Ticket[]; onNew: () => void }) { return <><PageTitle eyebrow="TRUNG TÂM HỖ TRỢ" title="Yêu cầu hỗ trợ" action={<button className="primary-button" onClick={onNew}><Icon name="plus" /> Gửi yêu cầu</button>} /><div className="support-layout"><div className="ticket-list">{tickets.map((ticket) => <div className="ticket-card" key={ticket.id}><div className="ticket-icon"><Icon name="message" /></div><div><span className="application-id">{ticket.id} · {ticket.updatedAt}</span><h3>{ticket.subject}</h3><p>{ticket.message}</p><span className={`ticket-status ${ticket.status}`}>{ticket.status === "new" ? "Mới" : ticket.status === "waiting_customer" ? "Chờ khách hàng" : ticket.status}</span></div><Icon name="arrow" /></div>)}</div><div className="support-guide"><div className="support-icon"><Icon name="help" /></div><h2>Chúng tôi có thể giúp gì?</h2><p>Gửi câu hỏi về hồ sơ, tài liệu hoặc quy trình. Câu hỏi chuyên môn sẽ được chuyển tới nhân viên thẩm định.</p><button className="outline-button" onClick={onNew}>Tạo yêu cầu mới <Icon name="arrow" /></button></div></div></>; }
+function Review({ app, onUpdate, onNotify }: { app: Application; onUpdate: (patch: Partial<Application>) => void; onNotify: (message: string) => void }) { const [result, setResult] = useState<PreliminaryResult>(app.preliminaryResult); const confirmed = app.documents.filter((doc) => doc.status === "confirmed").length; return <><PageTitle eyebrow="THẨM ĐỊNH" title="Hàng đợi hồ sơ" action={<span className="pill warning">1 hồ sơ được phân công</span>} /><div className="review-banner"><Icon name="check" /><div><strong>Hồ sơ cần xử lý: {app.id}</strong><span>{app.title} · Phiên bản {app.version}</span></div><span className="pill warning">{statusLabels[app.status]}</span></div><div className="review-grid"><div className="form-card"><div className="form-card-head"><div><p className="eyebrow">CHECKLIST ĐỐI CHIẾU</p><h2>Xác nhận dữ liệu và tài liệu</h2></div><span className="muted-count">{confirmed} đã xác nhận</span></div>{app.documents.map((doc) => <div className="review-document" key={doc.id}><div><strong>{doc.name}</strong><small>{doc.group} · {doc.status}</small></div>{doc.status === "confirmed" ? <span className="confirmed"><Icon name="check" /> Đã xác nhận</span> : <button className="outline-button" onClick={() => { const documents = app.documents.map((item) => item.id === doc.id ? { ...item, status: "confirmed" as const, note: "Đã xác nhận bởi thẩm định" } : item); onUpdate({ documents }); onNotify(`Đã xác nhận ${doc.name}.`); }}>Xác nhận</button>}</div>)}<div className="legal-box"><p className="eyebrow">ĐÁNH GIÁ PHÁP LÝ TÀI SẢN</p><h3>Tình trạng pháp lý sơ bộ</h3><select><option>Đạt sơ bộ</option><option>Cần làm rõ</option><option>Chưa đạt sơ bộ</option></select><textarea placeholder="Ghi chú đánh giá..." defaultValue="Chưa ghi nhận tranh chấp theo hồ sơ." /></div></div><aside className="form-card result-card"><p className="eyebrow">KẾT LUẬN SƠ BỘ</p><h2>Ghi nhận kết luận</h2><p className="subheading">Kết luận được lưu riêng với trạng thái xử lý hồ sơ.</p><div className="result-options">{(["meets", "needs_review", "not_meets"] as PreliminaryResult[]).map((item) => <button key={item} className={result === item ? "selected" : ""} onClick={() => setResult(item)}>{item === "meets" ? "Đáp ứng tiêu chí sơ bộ" : item === "needs_review" ? "Cần rà soát thêm" : "Chưa đáp ứng tiêu chí sơ bộ"}</button>)}</div><button className="primary-button full-button" onClick={() => { onUpdate({ preliminaryResult: result, status: "completed" }); onNotify("Đã lưu kết luận và hoàn tất báo cáo."); }}>Lưu kết luận & hoàn tất <Icon name="check" /></button><button className="outline-button full-button" onClick={() => { onUpdate({ status: "needs_more_info" }); onNotify("Đã phát hành yêu cầu bổ sung chính thức."); }}>Phát hành yêu cầu bổ sung</button></aside></div></>; }
+function Admin({ onNotify }: { onNotify: (message: string) => void }) { const [rules, setRules] = useState(defaultRules); return <><PageTitle eyebrow="QUẢN TRỊ" title="Cấu hình hệ thống" action={<span className="pill success">Quản trị viên</span>} /><div className="admin-tabs"><button className="selected">Ngưỡng đánh giá</button><button>Loại hồ sơ</button><button>Checklist template</button><button>Tài khoản & phân quyền</button><button>Audit log</button></div><div className="admin-grid"><div className="form-card"><div className="form-card-head"><div><p className="eyebrow">RULE CONFIGS</p><h2>Tham số phiên bản {rules.version}</h2></div><span className="pill success">Đang áp dụng</span></div><p className="subheading">Mỗi lần sửa sẽ tạo phiên bản mới; hồ sơ cũ vẫn giữ phiên bản đã dùng.</p><div className="form-grid"><Field label="LTV tối đa" value={String(rules.ltvMax * 100)} onChange={(value) => setRules({ ...rules, ltvMax: Number(value) / 100 })} suffix="%" /><Field label="DSR tối đa" value={String(rules.dsrMax * 100)} onChange={(value) => setRules({ ...rules, dsrMax: Number(value) / 100 })} suffix="%" /><Field label="DTI tối đa" value={String(rules.dtiMax * 100)} onChange={(value) => setRules({ ...rules, dtiMax: Number(value) / 100 })} suffix="%" /><Field label="Còn lại tối thiểu" value={String(rules.minRemaining)} onChange={(value) => setRules({ ...rules, minRemaining: Number(value) })} suffix="đ" /></div><button className="primary-button" onClick={() => onNotify("Đã tạo phiên bản cấu hình mới.")}>Lưu phiên bản mới <Icon name="check" /></button></div><div className="metric-card admin-metric"><Icon name="users" /><strong>05</strong><span>Tài khoản</span><small>2 khách hàng · 3 nhân viên</small></div><div className="metric-card admin-metric"><Icon name="file" /><strong>03</strong><span>Hồ sơ đang quản lý</span><small>Cập nhật theo dữ liệu hệ thống</small></div></div><div className="audit-table form-card"><p className="eyebrow">AUDIT LOG GẦN ĐÂY</p><h2>Lịch sử thao tác</h2><table><tbody><tr><td>17/06/2024 09:42</td><td>appraiser</td><td>Xác nhận tài liệu CCCD</td><td><span className="pill success">Thành công</span></td></tr><tr><td>17/06/2024 09:20</td><td>customer</td><td>Nộp hồ sơ HL-240617-001</td><td><span className="pill success">Thành công</span></td></tr></tbody></table></div></>; }
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) { return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><h2>{title}</h2><button className="icon-button" onClick={onClose} aria-label="Đóng"><Icon name="close" /></button></div>{children}</div></div>; }
+function NewApplication({ onSubmit }: { onSubmit: (title: string) => void }) { const [title, setTitle] = useState("Hồ sơ vay mua nhà của Nguyễn An"); return <form onSubmit={(event) => { event.preventDefault(); onSubmit(title); }}><label className="field"><span>Tên hồ sơ</span><input value={title} onChange={(event) => setTitle(event.target.value)} required /></label><p className="modal-note">Hồ sơ mới sẽ bắt đầu ở trạng thái Nháp và có thể chỉnh sửa trước khi nộp.</p><button className="primary-button full-button">Tạo hồ sơ nháp <Icon name="plus" /></button></form>; }
+function TicketForm({ onSubmit }: { onSubmit: (subject: string, message: string) => void }) { const [subject, setSubject] = useState("Hỏi về hồ sơ vay"); const [message, setMessage] = useState(""); return <form onSubmit={(event) => { event.preventDefault(); onSubmit(subject, message); }}><label className="field"><span>Chủ đề</span><select value={subject} onChange={(event) => setSubject(event.target.value)}><option>Hỏi về hồ sơ vay</option><option>Bổ sung tài liệu</option><option>Hỏi về chỉ tiêu tài chính</option><option>Khác</option></select></label><label className="field"><span>Nội dung</span><textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Mô tả câu hỏi của bạn..." required /></label><button className="primary-button full-button">Gửi yêu cầu <Icon name="arrow" /></button></form>; }
